@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TASK="${1:-testRunTestsUnitTest}"
+
+if [[ ! -x ./gradlew ]]; then
+  chmod +x ./gradlew
+fi
+
+./gradlew --no-daemon "$TASK"

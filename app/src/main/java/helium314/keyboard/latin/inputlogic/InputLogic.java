@@ -56,6 +56,7 @@ import helium314.keyboard.latin.suggestions.SuggestionStripViewAccessor;
 import helium314.keyboard.latin.utils.AsyncResultHolder;
 import helium314.keyboard.latin.utils.DictionaryInfoUtils;
 import helium314.keyboard.latin.utils.InputTypeUtils;
+import helium314.keyboard.latin.utils.InlineCalculator;
 import helium314.keyboard.latin.utils.IntentUtils;
 import helium314.keyboard.latin.utils.Log;
 import helium314.keyboard.latin.utils.RecapitalizeMode;
@@ -2526,6 +2527,12 @@ public final class InputLogic {
         mWordComposer.adviseCapitalizedModeBeforeFetchingSuggestions(
                 getActualCapsMode(settingsValues, KeyboardSwitcher.getInstance().getKeyboardShiftMode()));
         try {
+            final SuggestedWords inlineCalculatorSuggestions =
+                    getInlineCalculatorSuggestions(inputStyle, sequenceNumber);
+            if (inlineCalculatorSuggestions != null) {
+                callback.onGetSuggestedWords(inlineCalculatorSuggestions);
+                return;
+            }
             final SuggestedWords suggestedWords = mSuggest.getSuggestedWords(mWordComposer,
                     getNgramContextFromNthPreviousWordForSuggestion(
                     settingsValues.mSpacingAndPunctuations,
@@ -2544,6 +2551,64 @@ public final class InputLogic {
             callback.onGetSuggestedWords(SuggestedWords.getEmptyInstance());
             KeyboardSwitcher.getInstance().showToast("Error getting suggestions", true);
         }
+    }
+
+    @Nullable
+    private SuggestedWords getInlineCalculatorSuggestions(final int inputStyle,
+            final int sequenceNumber) {
+        if (inputStyle == SuggestedWords.INPUT_STYLE_UPDATE_BATCH
+                || inputStyle == SuggestedWords.INPUT_STYLE_TAIL_BATCH) {
+            return null;
+        }
+        final CharSequence textBeforeCursor = mConnection.getTextBeforeCursor(120, 0);
+        if (TextUtils.isEmpty(textBeforeCursor)) {
+            return null;
+        }
+        final InlineCalculator.CalcResult calcResult =
+                InlineCalculator.INSTANCE.detect(textBeforeCursor.toString());
+        if (calcResult == null) {
+            return null;
+        }
+        final String formattedResult = InlineCalculator.INSTANCE.formatResult(calcResult.getResult());
+        final SuggestedWordInfo typedWordInfo = new SuggestedWordInfo(
+                calcResult.getExpression(),
+                "",
+                SuggestedWordInfo.MAX_SCORE,
+                SuggestedWordInfo.KIND_TYPED,
+                Dictionary.DICTIONARY_USER_TYPED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        );
+        final ArrayList<SuggestedWordInfo> suggestions = new ArrayList<>(3);
+        suggestions.add(typedWordInfo);
+        suggestions.add(new SuggestedWordInfo(
+                formattedResult,
+                "",
+                SuggestedWordInfo.MAX_SCORE,
+                SuggestedWordInfo.KIND_HARDCODED,
+                Dictionary.DICTIONARY_HARDCODED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        ));
+        suggestions.add(new SuggestedWordInfo(
+                calcResult.getExpression() + " = " + formattedResult,
+                "",
+                SuggestedWordInfo.MAX_SCORE - 1,
+                SuggestedWordInfo.KIND_HARDCODED,
+                Dictionary.DICTIONARY_HARDCODED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        ));
+        return new SuggestedWords(
+                suggestions,
+                null,
+                typedWordInfo,
+                false,
+                false,
+                false,
+                SuggestedWords.INPUT_STYLE_TYPING,
+                sequenceNumber
+        );
     }
 
     /**
