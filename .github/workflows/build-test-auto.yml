@@ -24,13 +24,16 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '21'
+          java-version: '17'
           distribution: 'temurin'
 
       - uses: gradle/actions/setup-gradle@v3
 
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
       - name: Build with Gradle
-        run: ./.github/scripts/build-ci testRunTestsUnitTest
+        run: ./gradlew testRunTestsUnitTest
 
       - name: Archive reports for failed job
         uses: actions/upload-artifact@v4
