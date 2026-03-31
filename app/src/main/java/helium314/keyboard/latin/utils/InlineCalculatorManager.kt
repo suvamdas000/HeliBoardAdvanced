@@ -1,8 +1,8 @@
 package helium314.keyboard.latin.utils
 
 import android.content.SharedPreferences
-import helium314.keyboard.latin.SuggestedWords
 import helium314.keyboard.latin.SuggestedWords.SuggestedWordInfo
+import helium314.keyboard.latin.dictionary.Dictionary
 
 /**
  * Manages inline calculator state and integrates with the suggestion system.
@@ -24,7 +24,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
     }
 
     private var lastExpression: String? = null
-    private var lastResult: InlineCalculator.CalculatorResult? = null
+    private var lastResult: InlineCalculator.CalcResult? = null
 
     val isEnabled: Boolean
         get() = prefs.getBoolean(PREF_INLINE_CALCULATOR_ENABLED, true)
@@ -47,7 +47,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
             ?: textBeforeCursor?.takeIf { it.isNotBlank() }
             ?: return emptyList()
 
-        val calcResult = InlineCalculator.findAndEvaluate(textToEvaluate)
+        val calcResult = InlineCalculator.detect(textToEvaluate)
             ?: return emptyList()
 
         // Cache for later use
@@ -59,11 +59,11 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
         // Primary suggestion: just the result (e.g., "14")
         suggestions.add(
             SuggestedWordInfo(
-                calcResult.result,                          // word
+                InlineCalculator.formatResult(calcResult.result), // word
                 "",                                          // prevWordsContext
                 CALCULATOR_RESULT_SCORE,                     // score
-                SuggestedWordInfo.KIND_TYPED,                // kind
-                null,                                        // sourceDict
+                SuggestedWordInfo.KIND_HARDCODED,            // kind
+                Dictionary.DICTIONARY_HARDCODED,             // sourceDict
                 SuggestedWordInfo.NOT_AN_INDEX,              // indexOfTouchPointOfSecondWord
                 SuggestedWordInfo.NOT_A_CONFIDENCE            // autoCommitFirstWordConfidence
             )
@@ -72,11 +72,11 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
         // Secondary suggestion: expression = result (e.g., "2+3*4 = 14")
         suggestions.add(
             SuggestedWordInfo(
-                "${calcResult.expression} = ${calcResult.result}",
+                "${calcResult.expression}=${InlineCalculator.formatResult(calcResult.result)}",
                 "",
                 CALCULATOR_APPEND_SCORE,
-                SuggestedWordInfo.KIND_TYPED,
-                null,
+                SuggestedWordInfo.KIND_HARDCODED,
+                Dictionary.DICTIONARY_HARDCODED,
                 SuggestedWordInfo.NOT_AN_INDEX,
                 SuggestedWordInfo.NOT_A_CONFIDENCE
             )
@@ -88,7 +88,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
     /**
      * Get the last calculated result.
      */
-    fun getLastResult(): InlineCalculator.CalculatorResult? = lastResult
+    fun getLastResult(): InlineCalculator.CalcResult? = lastResult
 
     /**
      * Clear cached state.
