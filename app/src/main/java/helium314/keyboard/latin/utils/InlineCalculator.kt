@@ -9,7 +9,7 @@ import kotlin.math.pow
 object InlineCalculator {
 
     // Grab expression-like tail at the end of the string, optionally followed by '='.
-    private val GRAB_TAIL = Regex("""([0-9(][0-9+\-*/^().%\s×÷−]*[0-9)%])\s*=?\s*$""")
+    private val GRAB_TAIL = Regex("""([0-9(][0-9a-zA-Z+\-*/^().%\s×÷−]*[0-9)%])\s*=?\s*$""")
 
     data class CalcResult(
         val expression: String,    // the matched expression text

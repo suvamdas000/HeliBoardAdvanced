@@ -98,7 +98,6 @@ See [Contribution Guidelines](CONTRIBUTING.md)
   * [For creating custom dictionaries](https://codeberg.org/Helium314/aosp-dictionaries#wordlist-information) (see also top of the linked readme)
 * Community
   * [Lemmy](https://lemmy.world/c/Heliboard)
-  * [Reddit](https://www.reddit.com/r/HeliBoard)
   * GitHub [discussions](https://github.com/HeliBorg/HeliBoard/discussions)
 * Other
   * [Translations](https://translate.codeberg.org/projects/heliboard/)
