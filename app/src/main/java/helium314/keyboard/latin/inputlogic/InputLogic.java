@@ -285,6 +285,12 @@ public final class InputLogic {
 
         final SuggestedWords suggestedWords = mSuggestedWords;
         final String suggestion = suggestionInfo.mWord;
+        final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
+        final InputTransaction inputTransaction = new InputTransaction(settingsValues,
+                event, SystemClock.uptimeMillis(), mSpaceState, keyboardShiftState);
+        // Manual pick affects the contents of the editor, so we take note of this. It's important
+        // for the sequence of language switching.
+        inputTransaction.setDidAffectContents();
         final int inlineCalculatorExpressionLength = getInlineCalculatorExpressionLength(suggestionInfo);
         if (inlineCalculatorExpressionLength > 0) {
             mConnection.beginBatchEdit();
@@ -313,13 +319,6 @@ public final class InputLogic {
             final Event event = Event.createPunctuationSuggestionPickedEvent(suggestionInfo);
             return onCodeInput(settingsValues, event, keyboardShiftState, currentKeyboardScript, handler);
         }
-
-        final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
-        final InputTransaction inputTransaction = new InputTransaction(settingsValues,
-                event, SystemClock.uptimeMillis(), mSpaceState, keyboardShiftState);
-        // Manual pick affects the contents of the editor, so we take note of this. It's important
-        // for the sequence of language switching.
-        inputTransaction.setDidAffectContents();
         mConnection.beginBatchEdit();
         if (SpaceState.PHANTOM == mSpaceState && suggestion.length() > 0
                 // In the batch input mode, a manually picked suggested word should just replace
