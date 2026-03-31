@@ -22,6 +22,7 @@ import helium314.keyboard.latin.settings.Settings
 import helium314.keyboard.latin.settings.SettingsValuesForSuggestion
 import helium314.keyboard.latin.suggestions.SuggestionStripView
 import helium314.keyboard.latin.utils.AutoCorrectionUtils
+import helium314.keyboard.latin.utils.InlineCalculator
 import helium314.keyboard.latin.utils.Log
 import helium314.keyboard.latin.utils.SuggestionResults
 import java.util.Locale
@@ -140,6 +141,7 @@ class Suggest(private val mDictionaryFacilitator: DictionaryFacilitator) {
                 )
             }
         }
+        addInlineCalculatorSuggestions(typedWordString, suggestionsList)
         val isTypedWordValid = firstOccurrenceOfTypedWordInSuggestions > -1 || (!resultsArePredictions && !allowsToBeAutoCorrected)
         return SuggestedWords(suggestionsList, suggestionResults.mRawSuggestions,
             typedWordInfo, isTypedWordValid, hasAutoCorrection, false, inputStyle, sequenceNumber)
@@ -348,6 +350,32 @@ class Suggest(private val mDictionaryFacilitator: DictionaryFacilitator) {
         for (i in suggestionsList.indices) {
             suggestionsList[i] = useDefaultEmojiSkinTone(suggestionsList[i])
         }
+    }
+
+    private fun addInlineCalculatorSuggestions(
+        typedWord: String,
+        suggestionsList: ArrayList<SuggestedWordInfo>
+    ) {
+        val calcResult = InlineCalculator.detect(typedWord) ?: return
+        val formattedResult = InlineCalculator.formatResult(calcResult.result)
+        val expressionWithResult = "${calcResult.expression}=$formattedResult"
+        val calcSuggestions = listOf(formattedResult, expressionWithResult)
+        val insertAt = min(1, suggestionsList.size)
+        val existingWords = suggestionsList.mapTo(HashSet()) { it.mWord }
+        val newSuggestions = calcSuggestions
+            .filterNot(existingWords::contains)
+            .map { suggestionWord ->
+                SuggestedWordInfo(
+                    suggestionWord,
+                    "",
+                    SuggestedWordInfo.MAX_SCORE,
+                    SuggestedWordInfo.KIND_HARDCODED,
+                    Dictionary.DICTIONARY_HARDCODED,
+                    SuggestedWordInfo.NOT_AN_INDEX,
+                    SuggestedWordInfo.NOT_A_CONFIDENCE
+                )
+            }
+        suggestionsList.addAll(insertAt, newSuggestions)
     }
 
     /** get suggestions based on the current ngram context, with an empty typed word (that's what next word suggestions do)  */

@@ -8,14 +8,8 @@ import kotlin.math.pow
  */
 object InlineCalculator {
 
-    // Regex: a math expression at the END of the string, optionally followed by '='
-    // Must contain at least one operator to be considered an expression (not just a number)
-    private val EXPRESSION_PATTERN = Regex(
-        """((?:^|(?<=\s))[\d(][0-9+\-*/^().%\s]{2,}[0-9)%])\s*=?\s*$"""
-    )
-
-    // Simpler: grab everything from last whitespace/newline to end, try to parse
-    private val GRAB_TAIL = Regex("""([0-9(][0-9+\-*/^().%\s]*[0-9)%])\s*=?\s*$""")
+    // Grab expression-like tail at the end of the string, optionally followed by '='.
+    private val GRAB_TAIL = Regex("""([0-9(][0-9a-zA-Z+\-*/^().%\s×÷−]*[0-9)%])\s*=?\s*$""")
 
     data class CalcResult(
         val expression: String,    // the matched expression text
@@ -33,12 +27,14 @@ object InlineCalculator {
         val match = GRAB_TAIL.find(textBeforeCursor) ?: return null
         val exprText = match.groupValues[1].trim()
 
+        val normalizedExpr = normalizeExpression(exprText)
+
         // Must contain at least one operator
-        if (!exprText.any { it in "+-*/^%" } ||
+        if (!normalizedExpr.any { it in "+-*/^%" } ||
             !exprText.any { it.isDigit() }) return null
 
         // Don't trigger on very short things like "1+"
-        val cleanExpr = exprText.replace("\\s".toRegex(), "")
+        val cleanExpr = normalizedExpr.replace("\\s".toRegex(), "")
         if (cleanExpr.length < 3) return null
 
         return try {
@@ -177,8 +173,17 @@ object InlineCalculator {
     }
 
     fun evaluate(expression: String): Double {
-        val cleaned = expression.replace(" ", "")
+        val cleaned = normalizeExpression(expression).replace(" ", "")
         if (cleaned.isEmpty()) throw IllegalArgumentException("Empty expression")
         return Parser(cleaned).parse()
+    }
+
+    private fun normalizeExpression(expression: String): String {
+        return expression
+            .replace('×', '*')
+            .replace('÷', '/')
+            .replace('−', '-')
+            .replace("**", "^")
+            .replace(Regex("""(?i)\bmod\b"""), "%")
     }
 }
