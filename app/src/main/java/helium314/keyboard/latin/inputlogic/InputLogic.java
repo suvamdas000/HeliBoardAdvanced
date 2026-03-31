@@ -78,6 +78,7 @@ import java.util.concurrent.TimeUnit;
 public final class InputLogic {
     private static final String TAG = InputLogic.class.getSimpleName();
     private static final char INLINE_EMOJI_SEARCH_MARKER = ':';
+    private static final String INLINE_CALCULATOR_CONTEXT_PREFIX = "inline_calculator_len:";
     private static final int[] EMPTY_CODE_POINTS = new int[0];
 
     // TODO : Remove this member when we can.
@@ -284,6 +285,25 @@ public final class InputLogic {
 
         final SuggestedWords suggestedWords = mSuggestedWords;
         final String suggestion = suggestionInfo.mWord;
+        final int inlineCalculatorExpressionLength = getInlineCalculatorExpressionLength(suggestionInfo);
+        if (inlineCalculatorExpressionLength > 0) {
+            mConnection.beginBatchEdit();
+            mConnection.finishComposingText();
+            mConnection.deleteTextBeforeCursor(inlineCalculatorExpressionLength);
+            mConnection.commitText(suggestion, 1);
+            mConnection.endBatchEdit();
+            resetComposingState(true /* alsoResetLastComposedWord */);
+            mLastComposedWord.deactivate();
+            if (settingsValues.mAutospaceAfterSuggestion) {
+                mSpaceState = SpaceState.PHANTOM;
+            }
+            inputTransaction.requireShiftUpdate(InputTransaction.SHIFT_UPDATE_NOW);
+            setInlineEmojiSearchAction(false);
+            handler.postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_NONE);
+            StatsUtils.onPickSuggestionManually(mSuggestedWords, suggestionInfo, mDictionaryFacilitator);
+            StatsUtils.onWordCommitSuggestionPickedManually(suggestionInfo.mWord, mWordComposer.isBatchMode());
+            return inputTransaction;
+        }
         // If this is a punctuation picked from the suggestion strip, pass it to onCodeInput
         if (suggestion.length() == 1 && suggestedWords.isPunctuationSuggestions()) {
             // We still want to log a suggestion click.
@@ -2570,9 +2590,11 @@ public final class InputLogic {
             return null;
         }
         final String formattedResult = InlineCalculator.INSTANCE.formatResult(calcResult.getResult());
+        final String calculatorContext = INLINE_CALCULATOR_CONTEXT_PREFIX
+                + calcResult.getExpressionLength();
         final SuggestedWordInfo typedWordInfo = new SuggestedWordInfo(
                 calcResult.getExpression(),
-                "",
+                calculatorContext,
                 SuggestedWordInfo.MAX_SCORE,
                 SuggestedWordInfo.KIND_TYPED,
                 Dictionary.DICTIONARY_USER_TYPED,
@@ -2583,7 +2605,7 @@ public final class InputLogic {
         suggestions.add(typedWordInfo);
         suggestions.add(new SuggestedWordInfo(
                 formattedResult,
-                "",
+                calculatorContext,
                 SuggestedWordInfo.MAX_SCORE,
                 SuggestedWordInfo.KIND_HARDCODED,
                 Dictionary.DICTIONARY_HARDCODED,
@@ -2592,7 +2614,7 @@ public final class InputLogic {
         ));
         suggestions.add(new SuggestedWordInfo(
                 calcResult.getExpression() + " = " + formattedResult,
-                "",
+                calculatorContext,
                 SuggestedWordInfo.MAX_SCORE - 1,
                 SuggestedWordInfo.KIND_HARDCODED,
                 Dictionary.DICTIONARY_HARDCODED,
@@ -2609,6 +2631,21 @@ public final class InputLogic {
                 SuggestedWords.INPUT_STYLE_TYPING,
                 sequenceNumber
         );
+    }
+
+    private int getInlineCalculatorExpressionLength(final SuggestedWordInfo suggestionInfo) {
+        if (suggestionInfo == null || suggestionInfo.mPrevWordsContext == null) {
+            return 0;
+        }
+        final String context = suggestionInfo.mPrevWordsContext;
+        if (!context.startsWith(INLINE_CALCULATOR_CONTEXT_PREFIX)) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(context.substring(INLINE_CALCULATOR_CONTEXT_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**
