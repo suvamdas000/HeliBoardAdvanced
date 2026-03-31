@@ -56,6 +56,7 @@ import helium314.keyboard.latin.suggestions.SuggestionStripViewAccessor;
 import helium314.keyboard.latin.utils.AsyncResultHolder;
 import helium314.keyboard.latin.utils.DictionaryInfoUtils;
 import helium314.keyboard.latin.utils.InputTypeUtils;
+import helium314.keyboard.latin.utils.InlineCalculator;
 import helium314.keyboard.latin.utils.IntentUtils;
 import helium314.keyboard.latin.utils.Log;
 import helium314.keyboard.latin.utils.RecapitalizeMode;
@@ -77,6 +78,7 @@ import java.util.concurrent.TimeUnit;
 public final class InputLogic {
     private static final String TAG = InputLogic.class.getSimpleName();
     private static final char INLINE_EMOJI_SEARCH_MARKER = ':';
+    private static final String INLINE_CALCULATOR_CONTEXT_PREFIX = "inline_calculator_len:";
     private static final int[] EMPTY_CODE_POINTS = new int[0];
 
     // TODO : Remove this member when we can.
@@ -283,6 +285,31 @@ public final class InputLogic {
 
         final SuggestedWords suggestedWords = mSuggestedWords;
         final String suggestion = suggestionInfo.mWord;
+        final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
+        final InputTransaction inputTransaction = new InputTransaction(settingsValues,
+                event, SystemClock.uptimeMillis(), mSpaceState, keyboardShiftState);
+        // Manual pick affects the contents of the editor, so we take note of this. It's important
+        // for the sequence of language switching.
+        inputTransaction.setDidAffectContents();
+        final int inlineCalculatorExpressionLength = getInlineCalculatorExpressionLength(suggestionInfo);
+        if (inlineCalculatorExpressionLength > 0) {
+            mConnection.beginBatchEdit();
+            mConnection.finishComposingText();
+            mConnection.deleteTextBeforeCursor(inlineCalculatorExpressionLength);
+            mConnection.commitText(suggestion, 1);
+            mConnection.endBatchEdit();
+            resetComposingState(true /* alsoResetLastComposedWord */);
+            mLastComposedWord.deactivate();
+            if (settingsValues.mAutospaceAfterSuggestion) {
+                mSpaceState = SpaceState.PHANTOM;
+            }
+            inputTransaction.requireShiftUpdate(InputTransaction.SHIFT_UPDATE_NOW);
+            setInlineEmojiSearchAction(false);
+            handler.postUpdateSuggestionStrip(SuggestedWords.INPUT_STYLE_NONE);
+            StatsUtils.onPickSuggestionManually(mSuggestedWords, suggestionInfo, mDictionaryFacilitator);
+            StatsUtils.onWordCommitSuggestionPickedManually(suggestionInfo.mWord, mWordComposer.isBatchMode());
+            return inputTransaction;
+        }
         // If this is a punctuation picked from the suggestion strip, pass it to onCodeInput
         if (suggestion.length() == 1 && suggestedWords.isPunctuationSuggestions()) {
             // We still want to log a suggestion click.
@@ -292,13 +319,6 @@ public final class InputLogic {
             final Event event = Event.createPunctuationSuggestionPickedEvent(suggestionInfo);
             return onCodeInput(settingsValues, event, keyboardShiftState, currentKeyboardScript, handler);
         }
-
-        final Event event = Event.createSuggestionPickedEvent(suggestionInfo);
-        final InputTransaction inputTransaction = new InputTransaction(settingsValues,
-                event, SystemClock.uptimeMillis(), mSpaceState, keyboardShiftState);
-        // Manual pick affects the contents of the editor, so we take note of this. It's important
-        // for the sequence of language switching.
-        inputTransaction.setDidAffectContents();
         mConnection.beginBatchEdit();
         if (SpaceState.PHANTOM == mSpaceState && suggestion.length() > 0
                 // In the batch input mode, a manually picked suggested word should just replace
@@ -2526,6 +2546,12 @@ public final class InputLogic {
         mWordComposer.adviseCapitalizedModeBeforeFetchingSuggestions(
                 getActualCapsMode(settingsValues, KeyboardSwitcher.getInstance().getKeyboardShiftMode()));
         try {
+            final SuggestedWords inlineCalculatorSuggestions =
+                    getInlineCalculatorSuggestions(inputStyle, sequenceNumber);
+            if (inlineCalculatorSuggestions != null) {
+                callback.onGetSuggestedWords(inlineCalculatorSuggestions);
+                return;
+            }
             final SuggestedWords suggestedWords = mSuggest.getSuggestedWords(mWordComposer,
                     getNgramContextFromNthPreviousWordForSuggestion(
                     settingsValues.mSpacingAndPunctuations,
@@ -2543,6 +2569,81 @@ public final class InputLogic {
             Log.e(TAG, "Error fetching suggested words, using empty words instead", e);
             callback.onGetSuggestedWords(SuggestedWords.getEmptyInstance());
             KeyboardSwitcher.getInstance().showToast("Error getting suggestions", true);
+        }
+    }
+
+    @Nullable
+    private SuggestedWords getInlineCalculatorSuggestions(final int inputStyle,
+            final int sequenceNumber) {
+        if (inputStyle == SuggestedWords.INPUT_STYLE_UPDATE_BATCH
+                || inputStyle == SuggestedWords.INPUT_STYLE_TAIL_BATCH) {
+            return null;
+        }
+        final CharSequence textBeforeCursor = mConnection.getTextBeforeCursor(120, 0);
+        if (TextUtils.isEmpty(textBeforeCursor)) {
+            return null;
+        }
+        final InlineCalculator.CalcResult calcResult =
+                InlineCalculator.INSTANCE.detect(textBeforeCursor.toString());
+        if (calcResult == null) {
+            return null;
+        }
+        final String formattedResult = InlineCalculator.INSTANCE.formatResult(calcResult.getResult());
+        final String calculatorContext = INLINE_CALCULATOR_CONTEXT_PREFIX
+                + calcResult.getExpressionLength();
+        final SuggestedWordInfo typedWordInfo = new SuggestedWordInfo(
+                calcResult.getExpression(),
+                calculatorContext,
+                SuggestedWordInfo.MAX_SCORE,
+                SuggestedWordInfo.KIND_TYPED,
+                Dictionary.DICTIONARY_USER_TYPED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        );
+        final ArrayList<SuggestedWordInfo> suggestions = new ArrayList<>(3);
+        suggestions.add(typedWordInfo);
+        suggestions.add(new SuggestedWordInfo(
+                formattedResult,
+                calculatorContext,
+                SuggestedWordInfo.MAX_SCORE,
+                SuggestedWordInfo.KIND_HARDCODED,
+                Dictionary.DICTIONARY_HARDCODED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        ));
+        suggestions.add(new SuggestedWordInfo(
+                calcResult.getExpression() + " = " + formattedResult,
+                calculatorContext,
+                SuggestedWordInfo.MAX_SCORE - 1,
+                SuggestedWordInfo.KIND_HARDCODED,
+                Dictionary.DICTIONARY_HARDCODED,
+                SuggestedWordInfo.NOT_AN_INDEX,
+                SuggestedWordInfo.NOT_A_CONFIDENCE
+        ));
+        return new SuggestedWords(
+                suggestions,
+                null,
+                typedWordInfo,
+                false,
+                false,
+                false,
+                SuggestedWords.INPUT_STYLE_TYPING,
+                sequenceNumber
+        );
+    }
+
+    private int getInlineCalculatorExpressionLength(final SuggestedWordInfo suggestionInfo) {
+        if (suggestionInfo == null || suggestionInfo.mPrevWordsContext == null) {
+            return 0;
+        }
+        final String context = suggestionInfo.mPrevWordsContext;
+        if (!context.startsWith(INLINE_CALCULATOR_CONTEXT_PREFIX)) {
+            return 0;
+        }
+        try {
+            return Integer.parseInt(context.substring(INLINE_CALCULATOR_CONTEXT_PREFIX.length()));
+        } catch (NumberFormatException e) {
+            return 0;
         }
     }
 

@@ -24,7 +24,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
     }
 
     private var lastExpression: String? = null
-    private var lastResult: InlineCalculator.CalculatorResult? = null
+    private var lastResult: InlineCalculator.CalcResult? = null
 
     val isEnabled: Boolean
         get() = prefs.getBoolean(PREF_INLINE_CALCULATOR_ENABLED, true)
@@ -47,8 +47,9 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
             ?: textBeforeCursor?.takeIf { it.isNotBlank() }
             ?: return emptyList()
 
-        val calcResult = InlineCalculator.findAndEvaluate(textToEvaluate)
+        val calcResult = InlineCalculator.detect(textToEvaluate)
             ?: return emptyList()
+        val formattedResult = InlineCalculator.formatResult(calcResult.result)
 
         // Cache for later use
         lastExpression = calcResult.expression
@@ -59,7 +60,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
         // Primary suggestion: just the result (e.g., "14")
         suggestions.add(
             SuggestedWordInfo(
-                calcResult.result,                          // word
+                formattedResult,                            // word
                 "",                                          // prevWordsContext
                 CALCULATOR_RESULT_SCORE,                     // score
                 SuggestedWordInfo.KIND_TYPED,                // kind
@@ -72,7 +73,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
         // Secondary suggestion: expression = result (e.g., "2+3*4 = 14")
         suggestions.add(
             SuggestedWordInfo(
-                "${calcResult.expression} = ${calcResult.result}",
+                "${calcResult.expression} = $formattedResult",
                 "",
                 CALCULATOR_APPEND_SCORE,
                 SuggestedWordInfo.KIND_TYPED,
@@ -88,7 +89,7 @@ class InlineCalculatorManager(private val prefs: SharedPreferences) {
     /**
      * Get the last calculated result.
      */
-    fun getLastResult(): InlineCalculator.CalculatorResult? = lastResult
+    fun getLastResult(): InlineCalculator.CalcResult? = lastResult
 
     /**
      * Clear cached state.
